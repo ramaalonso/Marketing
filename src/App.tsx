@@ -33,11 +33,12 @@ import { ReelsAndVideoStudio } from './components/ReelsAndVideoStudio';
 import { AdCampaignCenter } from './components/AdCampaignCenter';
 import { SmartCalendarAndCatalog } from './components/SmartCalendarAndCatalog';
 import { BrandDNAHub } from './components/BrandDNAHub';
+import { AIStrategist } from './components/AIStrategist';
 
-type ActiveTab = 'autopilot' | 'studio' | 'reels' | 'ads' | 'calendar' | 'dna';
+type ActiveTab = 'strategist' | 'autopilot' | 'studio' | 'reels' | 'ads' | 'calendar' | 'dna';
 
 export function App() {
-  const [activeTab, setActiveTab] = useState<ActiveTab>('autopilot');
+  const [activeTab, setActiveTab] = useState<ActiveTab>('strategist');
   const [dna, setDna] = useState<BrandDNA>(() => loadSavedBrandDNA());
   const [products, setProducts] = useState<YerbazoProduct[]>(INITIAL_YERBAZO_PRODUCTS);
   const [syncSource, setSyncSource] = useState<'live_cloud' | 'snapshot'>('snapshot');
@@ -152,8 +153,14 @@ export function App() {
 
   const navItems: { id: ActiveTab; label: string; badge?: string; icon: React.ReactNode }[] = [
     {
+      id: 'strategist',
+      label: 'Estratega IA',
+      badge: 'NUEVO',
+      icon: <Sparkles className="w-4 h-4" />
+    },
+    {
       id: 'autopilot',
-      label: 'Piloto Automático IA',
+      label: 'Plantillas rápidas',
       badge: `${assets.length}`,
       icon: <Zap className="w-4 h-4" />
     },
@@ -295,6 +302,7 @@ export function App() {
 
       {/* Main Content Container */}
       <main className="flex-1 max-w-7xl w-full mx-auto px-4 sm:px-6 py-6">
+        {activeTab === 'strategist' && <AIStrategist products={products} dna={dna} />}
         {activeTab === 'autopilot' && (
           <AutopilotFeed
             assets={assets}

@@ -8,11 +8,31 @@ import { fileURLToPath } from 'url';
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
 
+// Cargar .env (API keys solo del lado servidor)
+try {
+  const envPath = path.join(__dirname, '.env');
+  if (fs.existsSync(envPath)) {
+    for (const line of fs.readFileSync(envPath, 'utf8').split(/\r?\n/)) {
+      const m = line.match(/^\s*([A-Z0-9_]+)\s*=\s*(.*)\s*$/);
+      if (m && !process.env[m[1]]) process.env[m[1]] = m[2];
+    }
+  }
+} catch {}
+
 const app = express();
 const PORT = process.env.PORT || 3002;
 
 app.use(cors());
-app.use(express.json());
+app.use(express.json({ limit: '25mb' }));
+
+// Endpoints de IA (mismos handlers que usa Vercel)
+const aiRoutes = ['ai-strategy', 'ai-image', 'ai-voice', 'ai-copy'];
+for (const name of aiRoutes) {
+  app.post(`/api/${name}`, async (req, res) => {
+    const mod = await import(`./api/${name}.js`);
+    return mod.default(req, res);
+  });
+}
 
 // Google Sheets live CSV proxy
 app.get('/api/sheet', (req, res) => {

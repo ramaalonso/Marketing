@@ -23,6 +23,7 @@ import {
 } from '../types/holo';
 import { buildCarouselSlides, formatArs } from '../services/yerbazoHoloEngine';
 import { renderMarketingCanvas } from '../utils/canvasRenderer';
+import { renderAgencyPhotoPiece } from '../utils/photoStudioComposer';
 
 interface VisualStudioProps {
   products: YerbazoProduct[];
@@ -88,6 +89,12 @@ export const VisualStudio: React.FC<VisualStudioProps> = ({
   const [activeSlideIndex, setActiveSlideIndex] = useState(0);
   const [savedNotice, setSavedNotice] = useState(false);
   const [localImages, setLocalImages] = useState<{ name: string; url: string; folder: string }[]>([]);
+  const [aiBackdropUrl, setAiBackdropUrl] = useState<string>('');
+  const [aiPhotoPrompt, setAiPhotoPrompt] = useState<string>(
+    'Clean warm rustic parota wood table surface in foreground on a sunlit Palermo Buenos Aires balcony, steaming leather imperial mate gourd and matte black thermos in soft bokeh background, 50mm f1.8 commercial photography'
+  );
+  const [aiFunnelMode, setAiFunnelMode] = useState<'TOFU' | 'MOFU' | 'BOFU'>('BOFU');
+  const [isGeneratingAiPhoto, setIsGeneratingAiPhoto] = useState(false);
   const canvasRef = useRef<HTMLCanvasElement | null>(null);
 
   useEffect(() => {
@@ -113,6 +120,24 @@ export const VisualStudio: React.FC<VisualStudioProps> = ({
 
   useEffect(() => {
     if (!canvasRef.current || !currentProduct) return;
+    if (aiBackdropUrl && config.templateId !== 'carrusel_secuencia') {
+      renderAgencyPhotoPiece({
+        canvas: canvasRef.current,
+        backdropUrl: aiBackdropUrl,
+        aspect: config.aspectRatio,
+        visualMode: 'product_scene',
+        funnel: aiFunnelMode,
+        headline: config.headline,
+        subline: config.subheadline,
+        cta: config.ctaText,
+        product: config.customImageUrl
+          ? { ...currentProduct, image: config.customImageUrl }
+          : currentProduct,
+        dna,
+        showTextOverlay: true
+      });
+      return;
+    }
     renderMarketingCanvas({
       canvas: canvasRef.current,
       config,
@@ -121,7 +146,27 @@ export const VisualStudio: React.FC<VisualStudioProps> = ({
       dna,
       activeSlideIndex
     });
-  }, [config, currentProduct, secondaryProduct, dna, activeSlideIndex]);
+  }, [config, currentProduct, secondaryProduct, dna, activeSlideIndex, aiBackdropUrl, aiFunnelMode]);
+
+  const handleGenerateStudioBackdrop = async () => {
+    setIsGeneratingAiPhoto(true);
+    try {
+      const res = await fetch('/api/ai-image', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          prompt: aiPhotoPrompt,
+          aspect: config.aspectRatio,
+          seed: Math.floor(100000 + Math.random() * 899999)
+        })
+      });
+      const data = await res.json();
+      if (data?.image) setAiBackdropUrl(data.image);
+    } catch {
+      // ignore
+    }
+    setIsGeneratingAiPhoto(false);
+  };
 
   const handleProductChange = (newProdId: number) => {
     const prod = products.find((p) => p.id === newProdId);
@@ -228,6 +273,79 @@ export const VisualStudio: React.FC<VisualStudioProps> = ({
               <CheckCircle2 className="w-4 h-4" />
               {savedNotice ? '¡Guardado en Calendario!' : 'Guardar en Calendario'}
             </button>
+          </div>
+
+          {/* Nuevo Bloque: Escenario Fotográfico Realista IA */}
+          <div className="p-4 rounded-xl bg-gradient-to-r from-[#0f4b25] to-black/50 border border-[#e68628]/40 space-y-3">
+            <div className="flex flex-wrap items-center justify-between gap-2">
+              <span className="text-xs font-extrabold text-[#e68628] uppercase tracking-wider">
+                📸 Escena Fotográfica Realista IA (Con Sombra Física en tu Paquete)
+              </span>
+              {aiBackdropUrl && (
+                <button
+                  onClick={() => setAiBackdropUrl('')}
+                  className="text-[11px] text-[#ece7d7]/70 hover:text-white underline"
+                >
+                  Volver a fondo gráfico
+                </button>
+              )}
+            </div>
+
+            <div className="grid grid-cols-1 sm:grid-cols-4 gap-2">
+              {[
+                {
+                  label: '☀️ Balcón Palermo',
+                  prompt:
+                    'Clean warm rustic parota wood table surface in foreground on a sunlit Palermo Buenos Aires balcony, steaming leather imperial mate gourd and thermos in soft bokeh background, 50mm f1.8'
+                },
+                {
+                  label: '🔥 Estudio Oscuro',
+                  prompt:
+                    'Dramatic luxury dark slate stone countertop in foreground with warm amber rim lighting, moody dark green studio backdrop with subtle yerba leaves bokeh, 85mm f1.4'
+                },
+                {
+                  label: '💻 Noche Facu',
+                  prompt:
+                    'Cozy wooden study desk surface in foreground at night with warm desk lamp light, open notebook and laptop softly blurred in background, rainy window bokeh, 50mm lens'
+                },
+                {
+                  label: '🌿 Parque & Sol',
+                  prompt:
+                    'Sunny outdoor rustic wooden table surface in foreground at a Buenos Aires park at golden hour, warm natural sunlight and green trees bokeh, 50mm f1.8'
+                }
+              ].map((preset, idx) => (
+                <button
+                  key={idx}
+                  onClick={() => setAiPhotoPrompt(preset.prompt)}
+                  className="px-2.5 py-1.5 rounded-lg bg-black/35 hover:bg-black/55 border border-white/15 text-[11px] font-bold text-[#ece7d7] transition"
+                >
+                  {preset.label}
+                </button>
+              ))}
+            </div>
+
+            <div className="flex flex-col sm:flex-row gap-2">
+              <select
+                value={aiFunnelMode}
+                onChange={(e) => setAiFunnelMode(e.target.value as any)}
+                className="px-3 py-2 rounded-xl bg-black/45 border border-white/15 text-xs font-bold text-[#ece7d7]"
+              >
+                <option value="TOFU">Objetivo TOFU (Editorial sin precio)</option>
+                <option value="MOFU">Objetivo MOFU (Educativo + Ficha)</option>
+                <option value="BOFU">Objetivo BOFU (Precio + CTA)</option>
+              </select>
+
+              <button
+                onClick={handleGenerateStudioBackdrop}
+                disabled={isGeneratingAiPhoto}
+                className="flex-1 py-2.5 px-4 rounded-xl bg-[#e68628] hover:bg-[#f39c42] text-white text-xs font-extrabold flex items-center justify-center gap-2 shadow-lg transition disabled:opacity-60"
+              >
+                <Sparkles className="w-4 h-4" />
+                {isGeneratingAiPhoto
+                  ? 'Revelando foto realista (≈10-20s)…'
+                  : 'Generar Escena Fotográfica Realista'}
+              </button>
+            </div>
           </div>
 
           {/* 1. Product & Aspect Ratio Row */}

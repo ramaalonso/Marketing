@@ -20,6 +20,7 @@ import {
   generateReelProjectForProduct
 } from '../services/yerbazoHoloEngine';
 import { loadSafeImage } from '../utils/canvasRenderer';
+import { ARGENTINE_VOICES } from './AIStrategist';
 
 interface ReelsAndVideoStudioProps {
   products: YerbazoProduct[];
@@ -47,6 +48,9 @@ export const ReelsAndVideoStudio: React.FC<ReelsAndVideoStudioProps> = ({
   const [activeSceneIdx, setActiveSceneIdx] = useState(0);
   const [isPlaying, setIsPlaying] = useState(false);
   const [voiceEnabled, setVoiceEnabled] = useState(true);
+  const [selectedVoice, setSelectedVoice] = useState<string>('tomas');
+  const [reelBackdropUrl, setReelBackdropUrl] = useState<string>('');
+  const [loadingReelBg, setLoadingReelBg] = useState(false);
   const [teleprompterOpen, setTeleprompterOpen] = useState(false);
   const [isRecordingVideo, setIsRecordingVideo] = useState(false);
   const [copiedScript, setCopiedScript] = useState(false);
@@ -73,23 +77,48 @@ export const ReelsAndVideoStudio: React.FC<ReelsAndVideoStudioProps> = ({
     setReel(nextReel);
     setActiveSceneIdx(0);
     setIsPlaying(false);
-    if ('speechSynthesis' in window) {
-      window.speechSynthesis.cancel();
-    }
+    audioElRef.current?.pause();
   };
 
-  // Speak scene voiceover using browser TTS when playing
-  const speakSceneText = (text: string) => {
-    if (!voiceEnabled || !('speechSynthesis' in window)) return;
+  // Voz humana neural rioplatense (Gemini 3.8 TTS vía servidor)
+  const audioElRef = useRef<HTMLAudioElement | null>(null);
+  const speakSceneText = async (text: string) => {
+    if (!voiceEnabled) return;
     try {
-      window.speechSynthesis.cancel();
-      const utter = new SpeechSynthesisUtterance(text);
-      utter.lang = 'es-AR';
-      utter.rate = 1.08;
-      window.speechSynthesis.speak(utter);
+      audioElRef.current?.pause();
+      const res = await fetch('/api/ai-voice', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ text, voice: selectedVoice })
+      });
+      if (!res.ok) return;
+      const url = URL.createObjectURL(await res.blob());
+      audioElRef.current = new Audio(url);
+      audioElRef.current.play();
     } catch {
       // ignore
     }
+  };
+
+  const handleGenerateReelBackdrop = async () => {
+    setLoadingReelBg(true);
+    try {
+      const res = await fetch('/api/ai-image', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          prompt:
+            'Warm morning sunlight on a wooden Buenos Aires balcony table, steaming leather imperial mate gourd and thermos softly blurred in bokeh background, clean foreground surface, vertical 9:16 commercial photography, 50mm f1.8',
+          aspect: '9:16',
+          seed: Math.floor(100000 + Math.random() * 899999)
+        })
+      });
+      const data = await res.json();
+      if (data?.image) setReelBackdropUrl(data.image);
+    } catch {
+      // ignore
+    }
+    setLoadingReelBg(false);
   };
 
   // Playback controller across scenes
@@ -120,13 +149,16 @@ export const ReelsAndVideoStudio: React.FC<ReelsAndVideoStudioProps> = ({
     let mounted = true;
     let prodImg: HTMLImageElement | null = null;
     let logoImg: HTMLImageElement | null = null;
+    let bgPhotoImg: HTMLImageElement | null = null;
 
     Promise.all([
       loadSafeImage(currentProduct.image),
-      loadSafeImage('/logo.webp')
-    ]).then(([pImg, lImg]) => {
+      loadSafeImage('/logo.webp'),
+      reelBackdropUrl ? loadSafeImage(reelBackdropUrl) : Promise.resolve(null)
+    ]).then(([pImg, lImg, bImg]) => {
       prodImg = pImg;
       logoImg = lImg;
+      bgPhotoImg = bImg;
     });
 
     startTimeRef.current = performance.now();
@@ -145,17 +177,27 @@ export const ReelsAndVideoStudio: React.FC<ReelsAndVideoStudioProps> = ({
       const elapsed = (now - startTimeRef.current) / 1000;
       const scene = reel.scenes[activeSceneIdx] || reel.scenes[0];
 
-      // Dynamic background gradient
-      const bgGrad = ctx.createLinearGradient(0, 0, W, H);
-      if (reel.style === 'oferta_relampago') {
-        bgGrad.addColorStop(0, '#300f06');
-        bgGrad.addColorStop(1, '#0f4b25');
+      if (bgPhotoImg) {
+        const zoom = 1.05 + Math.sin(elapsed * 0.4) * 0.04;
+        const sc = Math.max(W / bgPhotoImg.width, H / bgPhotoImg.height) * zoom;
+        const dw = bgPhotoImg.width * sc;
+        const dh = bgPhotoImg.height * sc;
+        ctx.drawImage(bgPhotoImg, (W - dw) / 2, (H - dh) / 2, dw, dh);
+        ctx.fillStyle = 'rgba(5, 16, 9, 0.35)';
+        ctx.fillRect(0, 0, W, H);
       } else {
-        bgGrad.addColorStop(0, '#0f4b25');
-        bgGrad.addColorStop(1, '#06170b');
+        // Dynamic background gradient
+        const bgGrad = ctx.createLinearGradient(0, 0, W, H);
+        if (reel.style === 'oferta_relampago') {
+          bgGrad.addColorStop(0, '#300f06');
+          bgGrad.addColorStop(1, '#0f4b25');
+        } else {
+          bgGrad.addColorStop(0, '#0f4b25');
+          bgGrad.addColorStop(1, '#06170b');
+        }
+        ctx.fillStyle = bgGrad;
+        ctx.fillRect(0, 0, W, H);
       }
-      ctx.fillStyle = bgGrad;
-      ctx.fillRect(0, 0, W, H);
 
       // Animated radial pulse
       const pulseRadius = 220 + Math.sin(elapsed * 3) * 28;
@@ -285,7 +327,7 @@ export const ReelsAndVideoStudio: React.FC<ReelsAndVideoStudioProps> = ({
       mounted = false;
       if (animFrameRef.current) cancelAnimationFrame(animFrameRef.current);
     };
-  }, [reel, activeSceneIdx, currentProduct, dna]);
+  }, [reel, activeSceneIdx, currentProduct, dna, reelBackdropUrl]);
 
   // Export Animated Reel as Downloadable Video (.webm) using MediaRecorder
   const handleExportVideo = async () => {
@@ -367,6 +409,41 @@ export const ReelsAndVideoStudio: React.FC<ReelsAndVideoStudioProps> = ({
               >
                 <Copy className="w-4 h-4" />
                 {copiedScript ? '¡Guion Copiado!' : 'Copiar Guion Completo'}
+              </button>
+            </div>
+          </div>
+
+          {/* Voice & Photorealistic Backdrop Controls */}
+          <div className="grid grid-cols-1 sm:grid-cols-2 gap-4 p-3.5 rounded-xl bg-black/30 border border-[#e68628]/30">
+            <div>
+              <label className="block text-xs font-bold text-[#e68628] mb-1">
+                🎙️ Voz Humana Neural Rioplatense (Gemini 3.8 TTS)
+              </label>
+              <select
+                value={selectedVoice}
+                onChange={(e) => setSelectedVoice(e.target.value)}
+                className="w-full px-3 py-2 rounded-lg bg-black/50 border border-white/15 text-xs font-bold text-[#ece7d7]"
+              >
+                {ARGENTINE_VOICES.map((v) => (
+                  <option key={v.id} value={v.id}>
+                    {v.label}
+                  </option>
+                ))}
+              </select>
+            </div>
+
+            <div className="flex items-end">
+              <button
+                onClick={handleGenerateReelBackdrop}
+                disabled={loadingReelBg}
+                className="w-full py-2 px-3 rounded-lg bg-[#0f4b25] hover:bg-[#176936] border border-[#e68628]/50 text-white text-xs font-extrabold flex items-center justify-center gap-1.5 transition"
+              >
+                <Sparkles className="w-3.5 h-3.5 text-[#e68628]" />
+                {loadingReelBg
+                  ? 'Creando fondo realista…'
+                  : reelBackdropUrl
+                  ? 'Cambiar Escena Fotográfica 9:16'
+                  : 'Generar Escena Fotográfica Real 9:16'}
               </button>
             </div>
           </div>

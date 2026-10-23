@@ -11,24 +11,8 @@ import {
   CarouselSlide
 } from '../types/holo';
 
-export const BRAND_DNA_STORAGE_KEY = 'yerbazo_holo_brand_dna_v4';
-export const GENERATED_ASSETS_STORAGE_KEY = 'yerbazo_holo_assets_v4';
-
-// Runtime vault decoder (protects keys from GitHub secret-scanning bots while preloading them out of the box)
-function decodeVault(encoded: string): string {
-  try {
-    return atob(encoded).split('').reverse().join('');
-  } catch {
-    return '';
-  }
-}
-
-const PRELOADED_GEMINI = decodeVault(
-  'Z3EySHdndnBZTTFuQkoxSjNUS0ZERDRieTJXWmUyWWhWVlVhbWV3RVFRS0o2TlI4YkEuUUE='
-);
-const PRELOADED_OPENAI = decodeVault(
-  'QVUzNnBuVm82RHZVaXNTYV9JTWZlbFNEcGkzbWV3T09UMm41NnE5T1JETGNoeTJKczk3UXNFVzBMOVJtb0djSzNOSWRncnY4bkxKRmtibEIzVE5lMFliYTJkM2R1c0lvOUNxem5VNTBzUUdTUUdHRUR2STRaYjhjRkxxWHFVY3B4a0JrQ2pmcnZjZ1VQMG8yUDJrWEFGdEFSRGJiLWpvcnAta3M='
-);
+export const BRAND_DNA_STORAGE_KEY = 'yerbazo_holo_brand_dna_v5';
+export const GENERATED_ASSETS_STORAGE_KEY = 'yerbazo_holo_assets_v5';
 
 export const DEFAULT_BRAND_DNA: BrandDNA = {
   brandName: 'Yerbazo',
@@ -140,10 +124,10 @@ export const DEFAULT_BRAND_DNA: BrandDNA = {
   },
   aiConfig: {
     provider: 'dual_auto',
-    apiKey: PRELOADED_OPENAI,
-    geminiApiKey: PRELOADED_GEMINI,
-    openaiApiKey: PRELOADED_OPENAI,
-    model: 'gemini-2.5-flash'
+    apiKey: '',
+    geminiApiKey: '',
+    openaiApiKey: '',
+    model: 'gemini-3.5-flash'
   },
   lastScannedAt: new Date().toISOString()
 };
@@ -1276,83 +1260,34 @@ export function generateAutopilotBatch(
   return allBatch.filter((a) => a.objective === filterObjective);
 }
 
-// Optional Live Cloud AI Enhancement (Supports Dual Gemini + OpenAI with automatic fallback)
+// Generación de Copy Creativo vía servidor seguro (/api/ai-copy)
 export async function generateCustomCopyWithCloudAI(params: {
   dna: BrandDNA;
   product: YerbazoProduct;
   promptGoal: string;
 }): Promise<{ hook: string; body: string; cta: string } | null> {
-  const { dna, product, promptGoal } = params;
-  const geminiKey = (dna.aiConfig.geminiApiKey || (dna.aiConfig.provider === 'gemini' ? dna.aiConfig.apiKey : '') || '').trim();
-  const openaiKey = (dna.aiConfig.openaiApiKey || (dna.aiConfig.provider === 'openai' ? dna.aiConfig.apiKey : '') || '').trim();
-
-  if (!geminiKey && !openaiKey) {
-    return null;
-  }
-
-  const systemInstruction = `Sos el Director Creativo de Marketing de YERBAZO (${dna.websiteUrl} | IG: ${dna.instagramHandle} | TikTok: ${dna.tiktokHandle} | WhatsApp: ${dna.whatsappNumber}), la tienda líder de yerba mate importada y accesorios materos en Buenos Aires / Argentina.
-Tono activo: ${dna.activeTone}. Expresiones clave: ${dna.signatureExpressions.join(', ')}.
-Producto: ${product.title}, Precio: ${formatArs(product.isSale && product.salePrice ? product.salePrice : product.price)}, Molienda: ${product.molienda}, Notas: ${product.notasCata.join(', ')}.
-Cupón activo: ${dna.activeCoupon.code} (${dna.activeCoupon.discount}% OFF).
-Respondé ÚNICAMENTE con un objeto JSON válido con las claves: "hook", "body", "cta".`;
-
-  const tryGemini = async (): Promise<{ hook: string; body: string; cta: string } | null> => {
-    if (!geminiKey) return null;
-    try {
-      const model = dna.aiConfig.model?.startsWith('gemini') ? dna.aiConfig.model : 'gemini-2.5-flash';
-      const res = await fetch(
-        `https://generativelanguage.googleapis.com/v1beta/models/${model}:generateContent?key=${encodeURIComponent(geminiKey)}`,
-        {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({
-            contents: [{ parts: [{ text: `${systemInstruction}\n\nObjetivo pedido: ${promptGoal}` }] }],
-            generationConfig: { responseMimeType: 'application/json' }
-          })
-        }
-      );
-      if (res.ok) {
-        const data = await res.json();
-        const text = data?.candidates?.[0]?.content?.parts?.[0]?.text;
-        if (text) return JSON.parse(text);
-      }
-    } catch {
-      // fallback
-    }
-    return null;
-  };
-
-  const tryOpenAI = async (): Promise<{ hook: string; body: string; cta: string } | null> => {
-    if (!openaiKey) return null;
-    try {
-      const res = await fetch('https://api.openai.com/v1/chat/completions', {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-          Authorization: `Bearer ${openaiKey}`
+  const { product, promptGoal } = params;
+  try {
+    const res = await fetch('/api/ai-copy', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        product: {
+          title: product.title,
+          price: product.isSale && product.salePrice ? product.salePrice : product.price,
+          molienda: product.molienda,
+          notasCata: product.notasCata
         },
-        body: JSON.stringify({
-          model: 'gpt-4o-mini',
-          response_format: { type: 'json_object' },
-          messages: [
-            { role: 'system', content: systemInstruction },
-            { role: 'user', content: promptGoal }
-          ]
-        })
-      });
-      if (res.ok) {
-        const data = await res.json();
-        const text = data?.choices?.[0]?.message?.content;
-        if (text) return JSON.parse(text);
-      }
-    } catch {
-      // fallback
+        format: 'post_social',
+        goal: promptGoal
+      })
+    });
+    if (res.ok) {
+      const data = await res.json();
+      if (data?.hook) return data;
     }
-    return null;
-  };
-
-  if (dna.aiConfig.provider === 'openai') {
-    return (await tryOpenAI()) || (await tryGemini());
+  } catch {
+    // fallback
   }
-  return (await tryGemini()) || (await tryOpenAI());
+  return null;
 }
